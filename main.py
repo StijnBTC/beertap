@@ -1,8 +1,6 @@
 import asyncio
-from tkinter import *
-from functools import wraps
 import logging
-import os
+from tkinter import TclError, Tk
 
 import telegram_handler
 from telegram_handler import TelegramHandler
@@ -25,12 +23,11 @@ async def run_tk(root, interval=0.05):
             raise
 
 
-logging_handlers = []
+logging_handlers = [logging.StreamHandler()]
 
-logging_handlers.append(logging.StreamHandler())
 if settings.TELEGRAM_ENABLED:
     telegram_logger = TelegramHandler(token=settings.TELEGRAM_TOKEN, chat_id=settings.TELEGRAM_CHAT)
-    telegram_logger.formatter = telegram_handler.HtmlFormatter("%(asctime)s [%(module)s] %(levelname)s: %(message)s")
+    telegram_logger.formatter = telegram_handler.HtmlFormatter('%(asctime)s [%(module)s] %(levelname)s: %(message)s')
     logging_handlers.append(telegram_logger)
     logging_handlers.append(logging.FileHandler('logs.log'))
 
@@ -38,8 +35,8 @@ if settings.TELEGRAM_ENABLED:
 async def main() -> None:
     logging.basicConfig(
         level=settings.LOGLEVEL,
-        format="%(asctime)s [%(module)s] %(levelname)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+        format='%(asctime)s [%(module)s] %(levelname)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
         handlers=logging_handlers
     )
     app = App()
