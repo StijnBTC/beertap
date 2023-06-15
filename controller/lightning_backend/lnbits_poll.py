@@ -1,0 +1,99 @@
+import asyncio
+import json
+import logging
+
+import aiohttp as aiohttp
+import sseclient
+import urllib3
+
+import settings
+from controller.lightning_backend.lightning_backend_interface import LightningBackendInterface
+from model.invoice import Invoice
+
+
+def with_urllib3(url, headers):
+    """Get a streaming response for the given event feed using urllib3."""
+
+    http = urllib3.PoolManager()
+    return http.request('GET', url, preload_content=False, headers=headers)
+
+
+class LNBitsPoll(LightningBackendInterface):
+    last_invoice = None
+
+    def __init__(self):
+        self.base_url = settings.LNBITS_BASE_URL
+        self.invoice_key = settings.LNBITS_INVOICE_KEY
+
+    async def get_invoice(self, price: int) -> Invoice:
+        endpoint = 'api/v1/payments'
+        data = {"out": False, "amount": price, "memo": 'LNBeerTAP', "expiry": 86400, "unit": 'sat',
+                "internal": False}
+        headers = {
+            'X-Api-Key': self.invoice_key
+        }
+        data = await self._post(endpoint, data, headers)
+        logging.debug(data)
+        self.last_invoice = data
+        return Invoice(**data)
+
+    async def check_for_payments(self, callback) -> None:
+        headers = {'Accept': 'text/event-stream', 'x-api-key': self.invoice_key}
+        url = self.base_url + 'api/v1/payments/sse'
+        while self.last_invoice is not None:
+            print(self.last_invoice)
+            endpoint = 'api/v1/payments/' + self.last_invoice['payment_hash']
+            headers = {
+                'X-Api-Key': self.invoice_key
+            }
+            async with aiohttp.ClientSession() as session:
+                async with session.get(self.base_url + endpoint) as resp:
+                    a = await resp.json()
+                    logging.debug(a)
+                    if a['paid']:
+                        await callback(self.last_invoice['payment_hash'])
+
+            await asyncio.sleep(1)
+        # response = with_urllib3(url, headers)
+        # if int(str(response.status)[:1]) != 2:
+        #     logging.error(f"SSE response code: {response.status}")
+        #     return
+        # client = sseclient.SSEClient(response)
+        # for event in client.events():
+        #     logging.debug(f'SSE Event: {event.data}')
+        #     logging.debug(event.event)
+        #     if event.event == 'ping':
+        #
+        #         continue
+        #     try:
+        #         payment = json.loads(event.data)
+        #         if not payment['pending']:
+        #             logging.info("Payment received")
+        #             await callback(payment['payment_hash'])
+        #
+        #     except Exception as e:
+        #         logging.error(e)
+        #         pass
+
+    async def _post(self, endpoint, data, headers) -> any:
+        async with aiohttp.ClientSession() as session:
+            try:
+                logging.debug(f"Posting to: {self.base_url + endpoint}")
+                async with session.post(self.base_url + endpoint, json=data, headers=headers) as response:
+                    if int(str(response.status)[:1]) == 2:
+                        return await response.json()
+                    else:
+                        logging.error(f'connection error: {response.status}')
+            except aiohttp.ClientConnectorError as e:
+                logging.error(e)
+
+    async def get_price_in_sats(self, price) -> int:
+        endpoint = 'api/v1/conversion'
+        data = {
+            "from": "eur",
+            "amount": price,
+            "to": "sat"
+        }
+        headers = {}
+        data = await self._post(endpoint, data, headers)
+        return data['sats']
